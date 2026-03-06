@@ -42,7 +42,24 @@
       "created_at": "2026-03-06T01:38:11.545258Z",
       "indexed": true,
       "chunk_count": 6,
-      "indexed_at": "2026-03-06T01:38:20.342101Z"
+      "indexed_at": "2026-03-06T01:53:57.900919Z"
+    },
+    "87d2d3ec-0554-4b33-8043-a49981345a50": {
+      "doc_id": "87d2d3ec-0554-4b33-8043-a49981345a50",
+      "filename": "Resume ML Engineer.pdf",
+      "stored_as": "87d2d3ec-0554-4b33-8043-a49981345a50.pdf",
+      "created_at": "2026-03-06T01:53:33.539840Z",
+      "indexed": false,
+      "chunk_count": 0
+    },
+    "85c63a74-4ccf-459e-b87b-c6c7da6b1e80": {
+      "doc_id": "85c63a74-4ccf-459e-b87b-c6c7da6b1e80",
+      "filename": "Lecture-12.pdf",
+      "stored_as": "85c63a74-4ccf-459e-b87b-c6c7da6b1e80.pdf",
+      "created_at": "2026-03-06T01:54:36.093936Z",
+      "indexed": true,
+      "chunk_count": 29,
+      "indexed_at": "2026-03-06T01:54:39.391202Z"
     }
   }
 }
