@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import json
 import uuid
 from datetime import datetime
@@ -15,6 +17,8 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
+
+from langchain_openai import ChatOpenAI
 
 
 # ---------- Paths ----------
@@ -225,5 +229,34 @@ def chat(req: ChatRequest):
             "sources": [],
         }
 
-    answer = "Here are the most relevant excerpts from your documents (LLM answering comes next stage):"
-    return {"answer": answer, "sources": sources}
+    # Build context for LLM from top hits
+    context_blocks = []
+    for i, d in enumerate(hits, start=1):
+        src = d.metadata.get("source", "doc")
+        page = d.metadata.get("page", "?")
+        context_blocks.append(f"[{i}] ({src}, p.{page})\n{d.page_content}")
+
+    context = "\n\n".join(context_blocks) if context_blocks else "NO_CONTEXT"
+
+    system = (
+        "You are Knowledge Copilot. Answer ONLY using the provided context from documents. "
+        "If the answer is not in the context, say: 'I couldn't find that in the documents.' "
+        "Cite sources using (DocName p.X). Keep the answer concise and factual."
+        )
+
+    llm = ChatOpenAI(
+        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        temperature=0,
+        )
+
+    prompt = (
+        f"{system}\n\n"
+        f"CONTEXT:\n{context}\n\n"
+        f"QUESTION:\n{message}\n\n"
+        f"ANSWER:"
+        )
+
+    resp = llm.invoke(prompt)
+    answer_text = resp.content if hasattr(resp, "content") else str(resp)
+
+    return {"answer": answer_text, "sources": sources}
