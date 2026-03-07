@@ -228,35 +228,3 @@ def chat(req: ChatRequest):
             "answer": "I couldn't find anything relevant in the indexed documents.",
             "sources": [],
         }
-
-    # Build context for LLM from top hits
-    context_blocks = []
-    for i, d in enumerate(hits, start=1):
-        src = d.metadata.get("source", "doc")
-        page = d.metadata.get("page", "?")
-        context_blocks.append(f"[{i}] ({src}, p.{page})\n{d.page_content}")
-
-    context = "\n\n".join(context_blocks) if context_blocks else "NO_CONTEXT"
-
-    system = (
-        "You are Knowledge Copilot. Answer ONLY using the provided context from documents. "
-        "If the answer is not in the context, say: 'I couldn't find that in the documents.' "
-        "Cite sources using (DocName p.X). Keep the answer concise and factual."
-        )
-
-    llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        temperature=0,
-        )
-
-    prompt = (
-        f"{system}\n\n"
-        f"CONTEXT:\n{context}\n\n"
-        f"QUESTION:\n{message}\n\n"
-        f"ANSWER:"
-        )
-
-    resp = llm.invoke(prompt)
-    answer_text = resp.content if hasattr(resp, "content") else str(resp)
-
-    return {"answer": answer_text, "sources": sources}
