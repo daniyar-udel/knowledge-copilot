@@ -19,6 +19,11 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 
 from langchain_openai import ChatOpenAI
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).parent / ".env")
+assert os.getenv("OPENAI_API_KEY"), "OPENAI_API_KEY is not loaded"
 
 
 # ---------- Paths ----------
@@ -247,6 +252,7 @@ def chat(req: ChatRequest):
     llm = ChatOpenAI(
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         temperature=0,
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
         )
 
     prompt = (
