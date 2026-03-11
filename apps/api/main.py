@@ -18,12 +18,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 
-from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
-
-
-load_dotenv(Path(__file__).parent / ".env")
-assert os.getenv("OPENAI_API_KEY"), "OPENAI_API_KEY is not loaded"
+from langchain_ollama import ChatOllama
 
 
 # ---------- Paths ----------
@@ -39,6 +34,7 @@ for p in [DATA_DIR, UPLOAD_DIR, CHUNKS_DIR]:
 
 # ---------- App ----------
 app = FastAPI(title="Knowledge Copilot API")
+llm = ChatOllama(model="llama3.2", temperature=0, num_predict=256,keep_alive="10m",)
 
 app.add_middleware(
     CORSMiddleware,
@@ -234,35 +230,33 @@ def chat(req: ChatRequest):
             "sources": [],
         }
 
-    # Build context for LLM from top hits
+    if not hits:
+        return {
+            "answer": "I couldn't find that in the documents.",
+            "sources": [],
+            }
+
+    # Combine the context for LLM
     context_blocks = []
-    for i, d in enumerate(hits, start=1):
+    for d in hits[:5]:
         src = d.metadata.get("source", "doc")
         page = d.metadata.get("page", "?")
-        context_blocks.append(f"[{i}] ({src}, p.{page})\n{d.page_content}")
+        context_blocks.append(f"({src}, p.{page})\n{d.page_content}")
 
-    context = "\n\n".join(context_blocks) if context_blocks else "NO_CONTEXT"
+    context = "\n\n---\n\n".join(context_blocks)
+    if len(context) > 12000:
+        context = context[:12000]
 
-    system = (
-        "You are Knowledge Copilot. Answer ONLY using the provided context from documents. "
-        "If the answer is not in the context, say: 'I couldn't find that in the documents.' "
-        "Cite sources using (DocName p.X). Keep the answer concise and factual."
-        )
+    messages = [
+        (
+            "system",
+            "You are Knowledge Copilot. Answer ONLY using the provided CONTEXT. "
+            "If the answer is not in the context, say: 'I couldn't find that in the documents.' "
+            "When stating facts, cite like (DocName p.X).",
+            ),
+            ("human", f"CONTEXT:\n{context}\n\nQUESTION:\n{message}"),]
 
-    llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        temperature=0,
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-        )
+    ai_msg = llm.invoke(messages)
+    answer_text = ai_msg.content
 
-    prompt = (
-        f"{system}\n\n"
-        f"CONTEXT:\n{context}\n\n"
-        f"QUESTION:\n{message}\n\n"
-        f"ANSWER:"
-        )
-
-    resp = llm.invoke(prompt)
-    answer_text = resp.content if hasattr(resp, "content") else str(resp)
-
-    return {"answer": answer_text, "sources": sources}
+    return {"answer": answer_text, "sources": sources}  
