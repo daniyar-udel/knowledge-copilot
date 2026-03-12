@@ -20,6 +20,9 @@ from langchain_core.documents import Document
 
 from langchain_ollama import ChatOllama
 
+from langchain_ollama import OllamaEmbeddings
+from langchain_chroma import Chroma
+
 
 # ---------- Paths ----------
 BASE_DIR = Path(__file__).parent
@@ -27,6 +30,8 @@ DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 CHUNKS_DIR = DATA_DIR / "chunks"
 META_FILE = DATA_DIR / "documents.json"
+CHROMA_DIR = DATA_DIR / "chroma"
+CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 
 for p in [DATA_DIR, UPLOAD_DIR, CHUNKS_DIR]:
     p.mkdir(parents=True, exist_ok=True)
@@ -111,6 +116,17 @@ def _retrieve(retriever, query: str):
     # Last resort (private)
     return retriever._get_relevant_documents(query)
 
+def _get_embeddings():
+    # Ollama embeddings (local)
+    return OllamaEmbeddings(model="nomic-embed-text")
+
+def _get_vectorstore() -> Chroma:
+    return Chroma(
+        collection_name="knowledge_copilot",
+        embedding_function=_get_embeddings(),
+        persist_directory=str(CHROMA_DIR),
+    )
+
 
 # ---------- Routes ----------
 @app.get("/health")
@@ -177,6 +193,27 @@ def index_document(doc_id: str):
     splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=150)
     chunks = splitter.split_documents(pages)
 
+    # сохраняем chunks на диск как раньше (фоллбек/отладка)
+    _save_chunks(doc_id, chunks)
+
+    # --- semantic index: Chroma ---
+    vs = _get_vectorstore()
+
+    # ids, чтобы можно было переиндексировать документ без дублей
+    ids = [f"{doc_id}-{i}" for i in range(len(chunks))]
+
+    # если индексировали раньше — удалим старые ids
+    old_ids = doc.get("vector_ids") or []
+    if old_ids:
+        try:
+            vs.delete(ids=old_ids)
+        except Exception:
+            pass
+
+    vs.add_documents(documents=chunks, ids=ids)
+
+    doc["vector_ids"] = ids
+
     # 3) persist chunks to disk (jsonl)
     _save_chunks(doc_id, chunks)
 
@@ -207,10 +244,25 @@ def chat(req: ChatRequest):
             "sources": [],
         }
 
-    # BM25 retrieval (stable, no embeddings)
-    retriever = BM25Retriever.from_documents(docs)
-    retriever.k = 5
-    hits = _retrieve(retriever, message)
+    hits = []
+    try:
+        vs = _get_vectorstore()
+        retriever = vs.as_retriever(search_kwargs={"k": 5})
+
+        if req.doc_id:
+            hits = retriever.invoke(message, filter={"doc_id": req.doc_id})
+        else:
+            hits = retriever.invoke(message)
+    except Exception:
+        hits = []
+
+    # fallback (если embeddings/Chroma не дали результатов)
+    if not hits:
+        docs = _load_all_indexed_docs(meta, req.doc_id)
+        if docs:
+            bm25 = BM25Retriever.from_documents(docs)
+            bm25.k = 5
+            hits = bm25.invoke(message)  # (у тебя уже работает через invoke)
 
     sources = []
     for d in hits:
