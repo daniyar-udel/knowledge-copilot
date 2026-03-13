@@ -155,7 +155,21 @@
         "26ce78c2-4463-4989-9bb2-d8e235132159-3",
         "26ce78c2-4463-4989-9bb2-d8e235132159-4"
       ],
-      "indexed_at": "2026-03-12T23:05:03.305690Z"
+      "indexed_at": "2026-03-13T22:08:33.538083Z"
+    },
+    "1bd18f8b-7719-49e1-9bbc-2e89844ac4cd": {
+      "doc_id": "1bd18f8b-7719-49e1-9bbc-2e89844ac4cd",
+      "filename": "Cover Letter.pdf",
+      "stored_as": "1bd18f8b-7719-49e1-9bbc-2e89844ac4cd.pdf",
+      "created_at": "2026-03-13T22:29:22.986181Z",
+      "indexed": true,
+      "chunk_count": 3,
+      "vector_ids": [
+        "1bd18f8b-7719-49e1-9bbc-2e89844ac4cd-0",
+        "1bd18f8b-7719-49e1-9bbc-2e89844ac4cd-1",
+        "1bd18f8b-7719-49e1-9bbc-2e89844ac4cd-2"
+      ],
+      "indexed_at": "2026-03-13T22:29:35.937523Z"
     }
   }
 }

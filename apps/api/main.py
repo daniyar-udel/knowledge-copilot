@@ -1,27 +1,24 @@
 from __future__ import annotations
 
-import os
-
 import json
+import time
 import uuid
 from datetime import datetime
+from collections import Counter
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
+from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
-
-from langchain_ollama import ChatOllama
-
-from langchain_ollama import OllamaEmbeddings
-from langchain_chroma import Chroma
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 # ---------- Paths ----------
@@ -31,15 +28,22 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 CHUNKS_DIR = DATA_DIR / "chunks"
 META_FILE = DATA_DIR / "documents.json"
 CHROMA_DIR = DATA_DIR / "chroma"
-CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+CHAT_LOG_FILE = DATA_DIR / "chat_logs.jsonl"
+FEEDBACK_FILE = DATA_DIR / "feedback.jsonl"
 
-for p in [DATA_DIR, UPLOAD_DIR, CHUNKS_DIR]:
-    p.mkdir(parents=True, exist_ok=True)
+for path in [DATA_DIR, UPLOAD_DIR, CHUNKS_DIR, CHROMA_DIR]:
+    path.mkdir(parents=True, exist_ok=True)
 
 
 # ---------- App ----------
 app = FastAPI(title="Knowledge Copilot API")
-llm = ChatOllama(model="llama3.2", temperature=0, num_predict=256,keep_alive="10m",)
+
+llm = ChatOllama(
+    model="llama3.2",
+    temperature=0,
+    num_predict=256,
+    keep_alive="10m",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,6 +60,26 @@ class ChatRequest(BaseModel):
     doc_id: Optional[str] = None  # None => search across all indexed docs
 
 
+class FeedbackRequest(BaseModel):
+    chat_id: str
+    value: int = Field(..., description="1 for thumbs up, -1 for thumbs down")
+
+
+class PreparedChat(BaseModel):
+    chat_id: str
+    message: str
+    doc_id: Optional[str]
+    sources: list[dict[str, Any]]
+    prompt_messages: list[tuple[str, str]]
+
+
+class ChatResult(BaseModel):
+    chat_id: str
+    answer: str
+    sources: list[dict[str, Any]]
+    latency_ms: int
+
+
 # ---------- Meta helpers ----------
 def _now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
@@ -68,57 +92,78 @@ def _load_meta() -> dict[str, Any]:
 
 
 def _save_meta(meta: dict[str, Any]) -> None:
-    META_FILE.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    META_FILE.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _chunks_path(doc_id: str) -> Path:
     return CHUNKS_DIR / f"{doc_id}.jsonl"
 
 
+def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return rows
+
+
 def _save_chunks(doc_id: str, docs: list[Document]) -> None:
     path = _chunks_path(doc_id)
-    with path.open("w", encoding="utf-8") as f:
-        for d in docs:
-            row = {"text": d.page_content, "metadata": d.metadata}
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    with path.open("w", encoding="utf-8") as file:
+        for doc in docs:
+            row = {"text": doc.page_content, "metadata": doc.metadata}
+            file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def _load_chunks(doc_id: str) -> list[Document]:
     path = _chunks_path(doc_id)
     if not path.exists():
         return []
+
     docs: list[Document] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
+    with path.open("r", encoding="utf-8") as file:
+        for line in file:
             row = json.loads(line)
-            docs.append(Document(page_content=row["text"], metadata=row.get("metadata", {})))
+            docs.append(
+                Document(
+                    page_content=row["text"],
+                    metadata=row.get("metadata", {}),
+                )
+            )
     return docs
 
 
 def _load_all_indexed_docs(meta: dict[str, Any], doc_id: Optional[str]) -> list[Document]:
-    out: list[Document] = []
     if doc_id:
         return _load_chunks(doc_id)
-    # all indexed docs
-    for did, d in meta["documents"].items():
-        if d.get("indexed"):
-            out.extend(_load_chunks(did))
-    return out
+
+    docs: list[Document] = []
+    for current_doc_id, current_doc in meta["documents"].items():
+        if current_doc.get("indexed"):
+            docs.extend(_load_chunks(current_doc_id))
+    return docs
 
 
-def _retrieve(retriever, query: str):
-    # New LangChain (Runnable)
-    if hasattr(retriever, "invoke"):
-        return retriever.invoke(query)
-    # Older LangChain
-    if hasattr(retriever, "get_relevant_documents"):
-        return retriever.get_relevant_documents(query)
-    # Last resort (private)
-    return retriever._get_relevant_documents(query)
-
-def _get_embeddings():
-    # Ollama embeddings (local)
+def _get_embeddings() -> OllamaEmbeddings:
     return OllamaEmbeddings(model="nomic-embed-text")
+
 
 def _get_vectorstore() -> Chroma:
     return Chroma(
@@ -126,6 +171,182 @@ def _get_vectorstore() -> Chroma:
         embedding_function=_get_embeddings(),
         persist_directory=str(CHROMA_DIR),
     )
+
+
+def _vector_search(query: str, doc_id: Optional[str]) -> list[Document]:
+    try:
+        vectorstore = _get_vectorstore()
+
+        if doc_id:
+            retriever = vectorstore.as_retriever(
+                search_kwargs={"k": 5, "filter": {"doc_id": doc_id}}
+            )
+        else:
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+
+        return retriever.invoke(query)
+    except Exception as exc:
+        print(f"[vector retrieval error] {exc}")
+        return []
+
+
+def _bm25_search(query: str, docs: list[Document]) -> list[Document]:
+    if not docs:
+        return []
+
+    retriever = BM25Retriever.from_documents(docs)
+    retriever.k = 5
+    return retriever.invoke(query)
+
+
+def _build_sources(hits: list[Document]) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for doc in hits:
+        text = doc.page_content or ""
+        sources.append(
+            {
+                "doc_id": doc.metadata.get("doc_id"),
+                "source": doc.metadata.get("source"),
+                "page": doc.metadata.get("page"),
+                "snippet": (text[:260] + "...") if len(text) > 260 else text,
+            }
+        )
+    return sources
+
+
+def _build_context(hits: list[Document], limit: int = 5, max_chars: int = 12000) -> str:
+    context_blocks: list[str] = []
+    for doc in hits[:limit]:
+        src = doc.metadata.get("source", "doc")
+        page = doc.metadata.get("page", "?")
+        context_blocks.append(f"({src}, p.{page})\n{doc.page_content}")
+
+    context = "\n\n---\n\n".join(context_blocks)
+    return context[:max_chars]
+
+
+def _prepare_chat(req: ChatRequest) -> PreparedChat | JSONResponse:
+    message = req.message.strip()
+    if not message:
+        return JSONResponse({"error": "message is empty"}, status_code=400)
+
+    meta = _load_meta()
+    docs = _load_all_indexed_docs(meta, req.doc_id)
+
+    if not docs:
+        return JSONResponse(
+            {
+                "chat_id": str(uuid.uuid4()),
+                "answer": "No indexed documents found. Upload and index a PDF first.",
+                "sources": [],
+                "latency_ms": 0,
+            }
+        )
+
+    hits = _vector_search(message, req.doc_id)
+    if not hits:
+        hits = _bm25_search(message, docs)
+
+    if not hits:
+        return JSONResponse(
+            {
+                "chat_id": str(uuid.uuid4()),
+                "answer": "I couldn't find anything relevant in the indexed documents.",
+                "sources": [],
+                "latency_ms": 0,
+            }
+        )
+
+    sources = _build_sources(hits)
+    context = _build_context(hits)
+
+    prompt_messages = [
+        (
+            "system",
+            "You are Knowledge Copilot. Answer ONLY using the provided CONTEXT. "
+            "If the answer is not in the context, say: 'I couldn't find that in the documents.' "
+            "When stating facts, cite like (DocName p.X).",
+        ),
+        ("human", f"CONTEXT:\n{context}\n\nQUESTION:\n{message}"),
+    ]
+
+    return PreparedChat(
+        chat_id=str(uuid.uuid4()),
+        message=message,
+        doc_id=req.doc_id,
+        sources=sources,
+        prompt_messages=prompt_messages,
+    )
+
+
+def _log_chat(result: ChatResult, message: str, doc_id: Optional[str]) -> None:
+    _append_jsonl(
+        CHAT_LOG_FILE,
+        {
+            "chat_id": result.chat_id,
+            "message": message,
+            "doc_id": doc_id,
+            "latency_ms": result.latency_ms,
+            "source_count": len(result.sources),
+            "created_at": _now_iso(),
+        },
+    )
+
+
+def _feedback_summary() -> dict[str, int]:
+    votes: dict[str, int] = {}
+    for row in _read_jsonl(FEEDBACK_FILE):
+        chat_id = row.get("chat_id")
+        value = row.get("value")
+        if chat_id and value in (1, -1):
+            votes[chat_id] = value
+    return votes
+
+
+def _build_stats() -> dict[str, Any]:
+    chats = _read_jsonl(CHAT_LOG_FILE)
+    votes = _feedback_summary()
+    query_counter = Counter()
+    latencies: list[int] = []
+
+    for row in chats:
+        message = str(row.get("message", "")).strip()
+        if message:
+            query_counter[message] += 1
+        latency = row.get("latency_ms")
+        if isinstance(latency, (int, float)):
+            latencies.append(int(latency))
+
+    avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 0
+
+    return {
+        "total_chats": len(chats),
+        "avg_latency_ms": avg_latency,
+        "thumbs_up": sum(1 for value in votes.values() if value == 1),
+        "thumbs_down": sum(1 for value in votes.values() if value == -1),
+        "top_queries": [
+            {"query": query, "count": count}
+            for query, count in query_counter.most_common(5)
+        ],
+        "recent_chats": list(reversed(chats[-10:])),
+    }
+
+
+def _run_chat(prepared: PreparedChat) -> ChatResult:
+    started_at = time.perf_counter()
+    ai_msg = llm.invoke(prepared.prompt_messages)
+    latency_ms = int((time.perf_counter() - started_at) * 1000)
+    answer_text = str(ai_msg.content)
+    return ChatResult(
+        chat_id=prepared.chat_id,
+        answer=answer_text,
+        sources=prepared.sources,
+        latency_ms=latency_ms,
+    )
+
+
+def _ndjson(row: dict[str, Any]) -> str:
+    return json.dumps(row, ensure_ascii=False) + "\n"
 
 
 # ---------- Routes ----------
@@ -138,7 +359,7 @@ def health():
 def list_documents():
     meta = _load_meta()
     docs = list(meta["documents"].values())
-    docs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    docs.sort(key=lambda item: item.get("created_at", ""), reverse=True)
     return {"documents": docs}
 
 
@@ -165,150 +386,137 @@ async def upload_document(file: UploadFile = File(...)):
         "chunk_count": 0,
     }
     _save_meta(meta)
+
     return {"doc_id": doc_id, "filename": file.filename}
 
 
 @app.post("/documents/{doc_id}/index")
 def index_document(doc_id: str):
     meta = _load_meta()
-    doc = meta["documents"].get(doc_id)
-    if not doc:
+    doc_meta = meta["documents"].get(doc_id)
+    if not doc_meta:
         return JSONResponse({"error": "doc_id not found"}, status_code=404)
 
-    pdf_path = UPLOAD_DIR / doc["stored_as"]
+    pdf_path = UPLOAD_DIR / doc_meta["stored_as"]
     if not pdf_path.exists():
         return JSONResponse({"error": "file missing on disk"}, status_code=500)
 
-    # 1) load PDF pages
     loader = PyPDFLoader(str(pdf_path))
     pages = loader.load()
 
-    # add our metadata (page -> 1-based)
-    for d in pages:
-        d.metadata["doc_id"] = doc_id
-        d.metadata["source"] = doc["filename"]
-        d.metadata["page"] = int(d.metadata.get("page", 0)) + 1
+    for page_doc in pages:
+        page_doc.metadata["doc_id"] = doc_id
+        page_doc.metadata["source"] = doc_meta["filename"]
+        page_doc.metadata["page"] = int(page_doc.metadata.get("page", 0)) + 1
 
-    # 2) split into chunks
     splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=150)
     chunks = splitter.split_documents(pages)
 
-    # сохраняем chunks на диск как раньше (фоллбек/отладка)
     _save_chunks(doc_id, chunks)
 
-    # --- semantic index: Chroma ---
-    vs = _get_vectorstore()
+    vectorstore = _get_vectorstore()
+    new_ids = [f"{doc_id}-{idx}" for idx in range(len(chunks))]
 
-    # ids, чтобы можно было переиндексировать документ без дублей
-    ids = [f"{doc_id}-{i}" for i in range(len(chunks))]
-
-    # если индексировали раньше — удалим старые ids
-    old_ids = doc.get("vector_ids") or []
+    old_ids = doc_meta.get("vector_ids") or []
     if old_ids:
         try:
-            vs.delete(ids=old_ids)
-        except Exception:
-            pass
+            vectorstore.delete(ids=old_ids)
+        except Exception as exc:
+            print(f"[vector delete warning] {exc}")
 
-    vs.add_documents(documents=chunks, ids=ids)
+    try:
+        vectorstore.add_documents(documents=chunks, ids=new_ids)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"vector indexing failed: {exc}"},
+            status_code=500,
+        )
 
-    doc["vector_ids"] = ids
-
-    # 3) persist chunks to disk (jsonl)
-    _save_chunks(doc_id, chunks)
-
-    # 4) update meta
-    doc["indexed"] = True
-    doc["chunk_count"] = len(chunks)
-    doc["indexed_at"] = _now_iso()
-    meta["documents"][doc_id] = doc
+    doc_meta["vector_ids"] = new_ids
+    doc_meta["indexed"] = True
+    doc_meta["chunk_count"] = len(chunks)
+    doc_meta["indexed_at"] = _now_iso()
+    meta["documents"][doc_id] = doc_meta
     _save_meta(meta)
 
     return {"doc_id": doc_id, "pages": len(pages), "chunks": len(chunks)}
 
 
+@app.get("/stats")
+def stats():
+    return _build_stats()
+
+
+@app.post("/feedback")
+def feedback(req: FeedbackRequest):
+    if req.value not in (1, -1):
+        return JSONResponse({"error": "value must be 1 or -1"}, status_code=400)
+
+    _append_jsonl(
+        FEEDBACK_FILE,
+        {
+            "chat_id": req.chat_id,
+            "value": req.value,
+            "created_at": _now_iso(),
+        },
+    )
+    return {"ok": True}
+
+
 @app.post("/chat")
 def chat(req: ChatRequest):
-    message = req.message.strip()
-    if not message:
-        return JSONResponse({"error": "message is empty"}, status_code=400)
+    prepared = _prepare_chat(req)
+    if isinstance(prepared, JSONResponse):
+        return prepared
 
-    meta = _load_meta()
-
-    # load indexed chunks (one doc or all)
-    docs = _load_all_indexed_docs(meta, req.doc_id)
-
-    if not docs:
-        return {
-            "answer": "No indexed documents found. Upload and index a PDF first.",
-            "sources": [],
-        }
-
-    hits = []
     try:
-        vs = _get_vectorstore()
-        retriever = vs.as_retriever(search_kwargs={"k": 5})
+        result = _run_chat(prepared)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"llm invocation failed: {exc}"},
+            status_code=500,
+        )
 
-        if req.doc_id:
-            hits = retriever.invoke(message, filter={"doc_id": req.doc_id})
-        else:
-            hits = retriever.invoke(message)
-    except Exception:
-        hits = []
+    _log_chat(result, prepared.message, prepared.doc_id)
+    return result.model_dump()
 
-    # fallback (если embeddings/Chroma не дали результатов)
-    if not hits:
-        docs = _load_all_indexed_docs(meta, req.doc_id)
-        if docs:
-            bm25 = BM25Retriever.from_documents(docs)
-            bm25.k = 5
-            hits = bm25.invoke(message)  # (у тебя уже работает через invoke)
 
-    sources = []
-    for d in hits:
-        text = d.page_content or ""
-        sources.append(
+@app.post("/chat/stream")
+def chat_stream(req: ChatRequest):
+    prepared = _prepare_chat(req)
+    if isinstance(prepared, JSONResponse):
+        return prepared
+
+    def generate() -> Iterator[str]:
+        started_at = time.perf_counter()
+        answer_parts: list[str] = []
+
+        yield _ndjson(
             {
-                "doc_id": d.metadata.get("doc_id"),
-                "source": d.metadata.get("source"),
-                "page": d.metadata.get("page"),
-                "snippet": (text[:260] + "...") if len(text) > 260 else text,
+                "type": "meta",
+                "chat_id": prepared.chat_id,
+                "sources": prepared.sources,
             }
         )
 
-    if not sources:
-        return {
-            "answer": "I couldn't find anything relevant in the indexed documents.",
-            "sources": [],
-        }
+        try:
+            for chunk in llm.stream(prepared.prompt_messages):
+                token = str(chunk.content or "")
+                if not token:
+                    continue
+                answer_parts.append(token)
+                yield _ndjson({"type": "token", "content": token})
+        except Exception as exc:
+            yield _ndjson({"type": "error", "error": f"llm invocation failed: {exc}"})
+            return
 
-    if not hits:
-        return {
-            "answer": "I couldn't find that in the documents.",
-            "sources": [],
-            }
+        result = ChatResult(
+            chat_id=prepared.chat_id,
+            answer="".join(answer_parts),
+            sources=prepared.sources,
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        _log_chat(result, prepared.message, prepared.doc_id)
+        yield _ndjson({"type": "done", **result.model_dump()})
 
-    # Combine the context for LLM
-    context_blocks = []
-    for d in hits[:5]:
-        src = d.metadata.get("source", "doc")
-        page = d.metadata.get("page", "?")
-        context_blocks.append(f"({src}, p.{page})\n{d.page_content}")
-
-    context = "\n\n---\n\n".join(context_blocks)
-    if len(context) > 12000:
-        context = context[:12000]
-
-    messages = [
-        (
-            "system",
-            "You are Knowledge Copilot. Answer ONLY using the provided CONTEXT. "
-            "If the answer is not in the context, say: 'I couldn't find that in the documents.' "
-            "When stating facts, cite like (DocName p.X).",
-            ),
-            ("human", f"CONTEXT:\n{context}\n\nQUESTION:\n{message}"),]
-
-    ai_msg = llm.invoke(messages)
-    answer_text = ai_msg.content
-
-    return {"answer": answer_text, "sources": sources}  
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
