@@ -44,6 +44,12 @@ type StreamEvent =
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+const SUGGESTIONS = [
+  "Summarize the main argument in this document.",
+  "What risks or limitations are mentioned?",
+  "List the key dates, names, and facts with citations.",
+];
+
 export default function Home() {
   const [docs, setDocs] = useState<DocMeta[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string>("ALL");
@@ -53,17 +59,33 @@ export default function Home() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const selectedDoc = useMemo(() => {
     if (selectedDocId === "ALL") return null;
     return docs.find((d) => d.doc_id === selectedDocId) ?? null;
   }, [docs, selectedDocId]);
 
+  const indexedCount = useMemo(
+    () => docs.filter((doc) => doc.indexed).length,
+    [docs],
+  );
+
+  useEffect(() => {
+    void fetchDocs();
+  }, []);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [msgs, loading]);
+
   async function fetchDocs() {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/documents`);
+      const res = await fetch(`${API_BASE}/documents`, { cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as { documents: DocMeta[] };
       setDocs(data.documents ?? []);
@@ -72,12 +94,38 @@ export default function Home() {
     }
   }
 
-  useEffect(() => {
-    fetchDocs();
-  }, []);
-
   function updateMessage(id: string, updater: (msg: Msg) => Msg) {
     setMsgs((current) => current.map((msg) => (msg.id === id ? updater(msg) : msg)));
+  }
+
+  function applyStreamEvent(messageId: string, event: StreamEvent) {
+    if (event.type === "meta") {
+      updateMessage(messageId, (msg) => ({
+        ...msg,
+        chatId: event.chat_id,
+        sources: event.sources ?? [],
+      }));
+      return;
+    }
+
+    if (event.type === "token") {
+      updateMessage(messageId, (msg) => ({
+        ...msg,
+        content: `${msg.content}${event.content ?? ""}`,
+      }));
+      return;
+    }
+
+    if (event.type === "done") {
+      updateMessage(messageId, (msg) => ({
+        ...msg,
+        chatId: event.chat_id,
+        content: event.answer,
+        sources: event.sources ?? [],
+        latencyMs: event.latency_ms,
+        pending: false,
+      }));
+    }
   }
 
   async function handleUpload() {
@@ -119,7 +167,7 @@ export default function Home() {
   async function handleIndex() {
     setError(null);
     if (selectedDocId === "ALL") {
-      setError("Select a document to index (not ALL).");
+      setError("Select a document to index first.");
       return;
     }
 
@@ -137,13 +185,28 @@ export default function Home() {
     }
   }
 
-  async function send() {
-    const text = input.trim();
+  function stopStreaming() {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    setLoading(false);
+    const lastAssistant = [...msgs].reverse().find((msg) => msg.role === "assistant" && msg.pending);
+    if (lastAssistant) {
+      updateMessage(lastAssistant.id, (msg) => ({
+        ...msg,
+        pending: false,
+        content: msg.content || "Generation stopped.",
+      }));
+    }
+  }
+
+  async function send(prefill?: string) {
+    const text = (prefill ?? input).trim();
     if (!text || loading) return;
 
     setError(null);
     const assistantId = crypto.randomUUID();
-    const nextMsgs: Msg[] = [
+    setMsgs((current) => [
+      ...current,
       { id: crypto.randomUUID(), role: "user", content: text },
       {
         id: assistantId,
@@ -153,11 +216,12 @@ export default function Home() {
         feedback: null,
         pending: true,
       },
-    ];
-
-    setMsgs((current) => [...current, ...nextMsgs]);
+    ]);
     setInput("");
     setLoading(true);
+
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
 
     try {
       const payload: { message: string; doc_id?: string } = { message: text };
@@ -167,6 +231,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(await res.text());
       if (!res.body) throw new Error("Streaming response body is missing.");
@@ -179,67 +244,43 @@ export default function Home() {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
           if (!line.trim()) continue;
           const event = JSON.parse(line) as StreamEvent;
-
-          if (event.type === "meta") {
-            updateMessage(assistantId, (msg) => ({
-              ...msg,
-              chatId: event.chat_id,
-              sources: event.sources ?? [],
-            }));
-          }
-
-          if (event.type === "token") {
-            updateMessage(assistantId, (msg) => ({
-              ...msg,
-              content: `${msg.content}${event.content ?? ""}`,
-            }));
-          }
-
-          if (event.type === "done") {
-            updateMessage(assistantId, (msg) => ({
-              ...msg,
-              chatId: event.chat_id,
-              content: event.answer,
-              sources: event.sources ?? [],
-              latencyMs: event.latency_ms,
-              pending: false,
-            }));
-          }
-
           if (event.type === "error") {
             throw new Error(event.error ?? "Unknown streaming error");
           }
+          applyStreamEvent(assistantId, event);
         }
       }
 
       if (buffer.trim()) {
         const event = JSON.parse(buffer) as StreamEvent;
-        if (event.type === "done") {
-          updateMessage(assistantId, (msg) => ({
-            ...msg,
-            chatId: event.chat_id,
-            content: event.answer,
-            sources: event.sources ?? [],
-            latencyMs: event.latency_ms,
-            pending: false,
-          }));
+        if (event.type === "error") {
+          throw new Error(event.error ?? "Unknown streaming error");
         }
+        applyStreamEvent(assistantId, event);
       }
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "unknown error";
-      updateMessage(assistantId, (msg) => ({
-        ...msg,
-        content: `Error: ${message}`,
-        pending: false,
-      }));
+      if (e instanceof DOMException && e.name === "AbortError") {
+        updateMessage(assistantId, (msg) => ({
+          ...msg,
+          pending: false,
+          content: msg.content || "Generation stopped.",
+        }));
+      } else {
+        const message = e instanceof Error ? e.message : "unknown error";
+        updateMessage(assistantId, (msg) => ({
+          ...msg,
+          content: `Error: ${message}`,
+          pending: false,
+        }));
+      }
     } finally {
+      streamAbortRef.current = null;
       setLoading(false);
     }
   }
@@ -262,29 +303,35 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fef3c7,_#fff7ed_35%,_#fff_68%)] text-slate-900">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fef3c7,_#fff7ed_30%,_#fff_70%)] text-slate-900">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
-        <section className="rounded-[28px] border border-amber-200/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(120,53,15,0.08)] backdrop-blur">
+        <section className="rounded-[30px] border border-amber-200/70 bg-white/90 p-6 shadow-[0_30px_90px_rgba(120,53,15,0.09)] backdrop-blur">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
+            <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-700">
-                Stage #4 Demo
+                Final Stage
               </p>
-              <h1 className="mt-2 font-serif text-4xl leading-tight text-slate-950">
-                Knowledge Copilot with streaming answers, feedback, and stats.
+              <h1 className="mt-2 font-serif text-4xl leading-tight text-slate-950 md:text-5xl">
+                Knowledge Copilot now feels like a real product, not a prototype.
               </h1>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
-                Upload a PDF, index it, ask a question, and watch the answer arrive token
-                by token like a real product.
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+                Streaming answers, grounded sources, feedback capture, and a live stats
+                dashboard make this portfolio project feel production-minded.
               </p>
             </div>
 
-            <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
+            <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-3">
               <div className="rounded-2xl border border-amber-100 bg-amber-50/80 px-4 py-3">
                 <div className="text-xs uppercase tracking-[0.2em] text-amber-700">
-                  Retrieval
+                  Docs
                 </div>
-                <div className="mt-1 font-medium">Semantic + BM25 fallback</div>
+                <div className="mt-1 font-medium">{docs.length} uploaded</div>
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-emerald-700">
+                  Indexed
+                </div>
+                <div className="mt-1 font-medium">{indexedCount} ready to query</div>
               </div>
               <Link
                 href="/stats"
@@ -293,17 +340,17 @@ export default function Home() {
                 <div className="text-xs uppercase tracking-[0.2em] text-slate-300">
                   Analytics
                 </div>
-                <div className="mt-1 font-medium">Open Stats dashboard</div>
+                <div className="mt-1 font-medium">Open live stats</div>
               </Link>
             </div>
           </div>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-[1.2fr_1.8fr]">
+        <section className="grid gap-6 lg:grid-cols-[1.05fr_1.95fr]">
           <div className="space-y-6">
             <div className="rounded-[24px] border border-slate-200 bg-white/90 p-5 shadow-sm">
               <h2 className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Documents
+                Workspace
               </h2>
 
               <div className="mt-4">
@@ -326,7 +373,7 @@ export default function Home() {
               </div>
 
               <div className="mt-5">
-                <label className="text-sm font-medium text-slate-800">Documents</label>
+                <label className="text-sm font-medium text-slate-800">Document scope</label>
                 <div className="mt-2 flex flex-col gap-2">
                   <select
                     value={selectedDocId}
@@ -336,14 +383,14 @@ export default function Home() {
                     <option value="ALL">All indexed documents</option>
                     {docs.map((d) => (
                       <option key={d.doc_id} value={d.doc_id}>
-                        {d.filename} {d.indexed ? "✓" : "..." }
+                        {d.filename} {d.indexed ? "[indexed]" : "[uploaded]"}
                       </option>
                     ))}
                   </select>
 
                   <div className="flex gap-2">
                     <button
-                      onClick={fetchDocs}
+                      onClick={() => void fetchDocs()}
                       className="flex-1 rounded-2xl border border-slate-300 px-4 py-2.5 text-sm transition hover:bg-slate-50"
                     >
                       Refresh
@@ -366,13 +413,30 @@ export default function Home() {
                     <div className="mt-1">
                       Indexed: {selectedDoc.indexed ? "yes" : "no"}
                       {typeof selectedDoc.chunk_count === "number"
-                        ? ` • chunks: ${selectedDoc.chunk_count}`
+                        ? ` | chunks: ${selectedDoc.chunk_count}`
                         : ""}
                     </div>
                   </>
                 ) : (
                   <div>Current mode: search across all indexed documents.</div>
                 )}
+              </div>
+
+              <div className="mt-5">
+                <div className="text-sm font-medium text-slate-800">Prompt ideas</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => {
+                        setInput(suggestion);
+                      }}
+                      className="rounded-full border border-slate-300 bg-white px-3 py-2 text-left text-xs text-slate-700 transition hover:border-amber-300 hover:bg-amber-50"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {error ? (
@@ -384,25 +448,36 @@ export default function Home() {
           </div>
 
           <div className="rounded-[24px] border border-slate-200 bg-white/90 p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
                   Chat
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Ask grounded questions and inspect the retrieved excerpts.
+                  Ask grounded questions and watch the answer stream in real time.
                 </p>
               </div>
-              <div className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-                {loading ? "Streaming..." : "Ready"}
+
+              <div className="flex items-center gap-2">
+                <div className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                  {loading ? "Streaming live" : "Ready"}
+                </div>
+                {loading ? (
+                  <button
+                    onClick={stopStreaming}
+                    className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Stop
+                  </button>
+                ) : null}
               </div>
             </div>
 
-            <div className="mt-4 min-h-[420px] rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#fff,_#fffaf0)] p-4">
+            <div className="mt-4 h-[560px] overflow-y-auto rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#fff,_#fffaf0)] p-4">
               {msgs.length === 0 ? (
-                <div className="flex h-full min-h-[380px] items-center justify-center text-center text-sm leading-6 text-slate-500">
-                  Upload a PDF, run indexing, then ask a specific question about the
-                  document to see streamed grounded answers.
+                <div className="flex h-full items-center justify-center text-center text-sm leading-6 text-slate-500">
+                  Upload a PDF, index it, and ask something specific to see a streamed,
+                  citation-grounded answer.
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -418,8 +493,12 @@ export default function Home() {
                       <div className="text-[11px] uppercase tracking-[0.18em] opacity-60">
                         {m.role === "user" ? "You" : "Assistant"}
                       </div>
+
                       <div className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                        {m.content || (m.pending ? "Thinking..." : "")}
+                        {m.content || (m.pending ? "Thinking" : "")}
+                        {m.pending ? (
+                          <span className="ml-1 inline-block h-4 w-2 animate-pulse rounded-sm bg-amber-400 align-middle" />
+                        ) : null}
                       </div>
 
                       {m.role === "assistant" ? (
@@ -429,29 +508,30 @@ export default function Home() {
                               <span>Latency: {m.latencyMs} ms</span>
                             ) : null}
                             {m.chatId ? <span>Chat ID: {m.chatId.slice(0, 8)}...</span> : null}
+                            {m.pending ? <span>Receiving tokens...</span> : null}
                           </div>
 
                           {!m.pending && m.chatId ? (
                             <div className="flex gap-2">
                               <button
-                                onClick={() => submitFeedback(m.id, m.chatId, 1)}
+                                onClick={() => void submitFeedback(m.id, m.chatId, 1)}
                                 className={`rounded-full border px-3 py-1 text-xs transition ${
                                   m.feedback === 1
                                     ? "border-emerald-500 bg-emerald-50 text-emerald-700"
                                     : "border-slate-300 hover:bg-slate-50"
                                 }`}
                               >
-                                👍 Helpful
+                                Helpful
                               </button>
                               <button
-                                onClick={() => submitFeedback(m.id, m.chatId, -1)}
+                                onClick={() => void submitFeedback(m.id, m.chatId, -1)}
                                 className={`rounded-full border px-3 py-1 text-xs transition ${
                                   m.feedback === -1
                                     ? "border-rose-500 bg-rose-50 text-rose-700"
                                     : "border-slate-300 hover:bg-slate-50"
                                 }`}
                               >
-                                👎 Not helpful
+                                Not helpful
                               </button>
                             </div>
                           ) : null}
@@ -469,8 +549,8 @@ export default function Home() {
                                   >
                                     <div className="text-xs text-slate-500">
                                       {s.source ?? "doc"}
-                                      {s.page ? ` • p.${s.page}` : ""}
-                                      {s.doc_id ? ` • ${String(s.doc_id).slice(0, 8)}...` : ""}
+                                      {s.page ? ` | p.${s.page}` : ""}
+                                      {s.doc_id ? ` | ${String(s.doc_id).slice(0, 8)}...` : ""}
                                     </div>
                                     <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
                                       {s.snippet ?? ""}
@@ -484,30 +564,41 @@ export default function Home() {
                       ) : null}
                     </article>
                   ))}
+                  <div ref={endRef} />
                 </div>
               )}
             </div>
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <input
+              <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    send();
+                    void send();
                   }
                 }}
+                rows={3}
                 placeholder="What does the document say about...?"
-                className="flex-1 rounded-[20px] border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-400"
+                className="min-h-[88px] flex-1 resize-none rounded-[20px] border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-amber-400"
               />
-              <button
-                onClick={send}
-                disabled={loading}
-                className="rounded-[20px] bg-amber-500 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? "Streaming..." : "Send"}
-              </button>
+              <div className="flex flex-col gap-2 sm:w-[140px]">
+                <button
+                  onClick={() => void send()}
+                  disabled={loading}
+                  className="rounded-[20px] bg-amber-500 px-5 py-3 text-sm font-medium text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? "Streaming..." : "Send"}
+                </button>
+                <button
+                  onClick={() => setMsgs([])}
+                  disabled={loading || msgs.length === 0}
+                  className="rounded-[20px] border border-slate-300 px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Clear chat
+                </button>
+              </div>
             </div>
 
             <div className="mt-3 text-xs text-slate-500">API: {API_BASE}</div>

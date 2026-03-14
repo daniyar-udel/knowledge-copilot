@@ -308,6 +308,9 @@ def _build_stats() -> dict[str, Any]:
     votes = _feedback_summary()
     query_counter = Counter()
     latencies: list[int] = []
+    source_counts: list[int] = []
+    meta = _load_meta()
+    documents = list(meta.get("documents", {}).values())
 
     for row in chats:
         message = str(row.get("message", "")).strip()
@@ -316,14 +319,28 @@ def _build_stats() -> dict[str, Any]:
         latency = row.get("latency_ms")
         if isinstance(latency, (int, float)):
             latencies.append(int(latency))
+        source_count = row.get("source_count")
+        if isinstance(source_count, (int, float)):
+            source_counts.append(int(source_count))
 
     avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 0
+    avg_sources = round(sum(source_counts) / len(source_counts), 1) if source_counts else 0
+    thumbs_up = sum(1 for value in votes.values() if value == 1)
+    thumbs_down = sum(1 for value in votes.values() if value == -1)
+    feedback_total = thumbs_up + thumbs_down
 
     return {
         "total_chats": len(chats),
         "avg_latency_ms": avg_latency,
-        "thumbs_up": sum(1 for value in votes.values() if value == 1),
-        "thumbs_down": sum(1 for value in votes.values() if value == -1),
+        "avg_sources_per_chat": avg_sources,
+        "thumbs_up": thumbs_up,
+        "thumbs_down": thumbs_down,
+        "feedback_total": feedback_total,
+        "positive_feedback_rate": round((thumbs_up / feedback_total) * 100, 1)
+        if feedback_total
+        else 0,
+        "total_documents": len(documents),
+        "indexed_documents": sum(1 for doc in documents if doc.get("indexed")),
         "top_queries": [
             {"query": query, "count": count}
             for query, count in query_counter.most_common(5)

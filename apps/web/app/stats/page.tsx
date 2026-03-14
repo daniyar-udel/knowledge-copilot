@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type StatQuery = {
   query: string;
@@ -19,8 +19,13 @@ type RecentChat = {
 type StatsResponse = {
   total_chats: number;
   avg_latency_ms: number;
+  avg_sources_per_chat: number;
   thumbs_up: number;
   thumbs_down: number;
+  feedback_total: number;
+  positive_feedback_rate: number;
+  total_documents: number;
+  indexed_documents: number;
   top_queries: StatQuery[];
   recent_chats: RecentChat[];
 };
@@ -31,34 +36,46 @@ export default function StatsPage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<string>("");
+
+  const topQueryMax = useMemo(() => {
+    if (!stats?.top_queries?.length) return 1;
+    return Math.max(...stats.top_queries.map((item) => item.count), 1);
+  }, [stats]);
+
+  async function loadStats() {
+    try {
+      const res = await fetch(`${API_BASE}/stats`, { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as StatsResponse;
+      setStats(data);
+      setError(null);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load stats");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
 
-    async function loadStats() {
-      try {
-        setLoading(true);
-        const res = await fetch(`${API_BASE}/stats`, { cache: "no-store" });
-        if (!res.ok) throw new Error(await res.text());
-        const data = (await res.json()) as StatsResponse;
-        if (!cancelled) {
-          setStats(data);
-          setError(null);
-        }
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Failed to load stats");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+    async function boot() {
+      if (!active) return;
+      await loadStats();
     }
 
-    void loadStats();
+    void boot();
+    const intervalId = window.setInterval(() => {
+      if (active) {
+        void loadStats();
+      }
+    }, 10000);
+
     return () => {
-      cancelled = true;
+      active = false;
+      window.clearInterval(intervalId);
     };
   }, []);
 
@@ -69,23 +86,34 @@ export default function StatsPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-700">
-                Stats
+                Live Stats
               </p>
               <h1 className="mt-2 font-serif text-4xl text-slate-950">
-                Product signals for your demo.
+                Signals recruiters can actually inspect.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                A simple dashboard for latency, feedback, and the queries people ask
-                most often.
+                This dashboard auto-refreshes every 10 seconds and tracks usage,
+                performance, and feedback from the chat experience.
               </p>
             </div>
 
-            <Link
-              href="/"
-              className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-            >
-              Back to chat
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setLoading(true);
+                  void loadStats();
+                }}
+                className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Refresh now
+              </button>
+              <Link
+                href="/"
+                className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Back to chat
+              </Link>
+            </div>
           </div>
         </section>
 
@@ -95,7 +123,11 @@ export default function StatsPage() {
           </div>
         ) : null}
 
-        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 text-xs uppercase tracking-[0.18em] text-slate-500">
+          {loading ? "Loading metrics..." : `Last updated ${lastUpdated}`}
+        </div>
+
+        <section className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
             {
               label: "Total chats",
@@ -108,14 +140,14 @@ export default function StatsPage() {
               accent: "from-cyan-100 to-white",
             },
             {
-              label: "Thumbs up",
-              value: stats?.thumbs_up ?? 0,
+              label: "Positive feedback",
+              value: `${stats?.positive_feedback_rate ?? 0}%`,
               accent: "from-emerald-100 to-white",
             },
             {
-              label: "Thumbs down",
-              value: stats?.thumbs_down ?? 0,
-              accent: "from-rose-100 to-white",
+              label: "Avg sources/chat",
+              value: stats?.avg_sources_per_chat ?? 0,
+              accent: "from-violet-100 to-white",
             },
           ].map((card) => (
             <article
@@ -132,19 +164,49 @@ export default function StatsPage() {
           ))}
         </section>
 
+        <section className="mt-6 grid gap-4 md:grid-cols-3">
+          <article className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">
+              Document coverage
+            </div>
+            <div className="mt-4 text-3xl font-semibold text-slate-950">
+              {loading ? "..." : `${stats?.indexed_documents ?? 0}/${stats?.total_documents ?? 0}`}
+            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              Indexed documents available for semantic search.
+            </p>
+          </article>
+
+          <article className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">
+              Thumbs up
+            </div>
+            <div className="mt-4 text-3xl font-semibold text-slate-950">
+              {loading ? "..." : stats?.thumbs_up ?? 0}
+            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              Helpful responses users explicitly approved.
+            </p>
+          </article>
+
+          <article className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">
+              Feedback volume
+            </div>
+            <div className="mt-4 text-3xl font-semibold text-slate-950">
+              {loading ? "..." : stats?.feedback_total ?? 0}
+            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              Total explicit user ratings collected so far.
+            </p>
+          </article>
+        </section>
+
         <section className="mt-6 grid gap-6 lg:grid-cols-[1.05fr_1.35fr]">
           <article className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Top queries
-              </h2>
-              <button
-                onClick={() => window.location.reload()}
-                className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-              >
-                Refresh
-              </button>
-            </div>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">
+              Top queries
+            </h2>
 
             <div className="mt-4 space-y-3">
               {stats?.top_queries?.length ? (
@@ -153,9 +215,17 @@ export default function StatsPage() {
                     key={item.query}
                     className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
                   >
-                    <div className="text-sm font-medium text-slate-900">{item.query}</div>
-                    <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">
-                      {item.count} request{item.count === 1 ? "" : "s"}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium text-slate-900">{item.query}</div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                        {item.count}
+                      </div>
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-slate-200">
+                      <div
+                        className="h-2 rounded-full bg-cyan-500"
+                        style={{ width: `${(item.count / topQueryMax) * 100}%` }}
+                      />
                     </div>
                   </div>
                 ))
