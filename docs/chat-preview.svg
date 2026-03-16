@@ -1,83 +1,90 @@
 <svg width="1280" height="820" viewBox="0 0 1280 820" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="160" y1="60" x2="1040" y2="760" gradientUnits="userSpaceOnUse">
+    <linearGradient id="page" x1="120" y1="80" x2="1100" y2="760" gradientUnits="userSpaceOnUse">
       <stop stop-color="#FEF3C7"/>
-      <stop offset="0.45" stop-color="#FFF7ED"/>
+      <stop offset="0.38" stop-color="#FFF7ED"/>
       <stop offset="1" stop-color="#FFFFFF"/>
     </linearGradient>
-    <filter id="shadow" x="90" y="70" width="1100" height="650" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="28" stdDeviation="28" flood-color="#7C2D12" flood-opacity="0.12"/>
+    <linearGradient id="hero" x1="180" y1="170" x2="1020" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7CC"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <filter id="cardShadow" x="90" y="60" width="1100" height="690" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="28" stdDeviation="30" flood-color="#7C2D12" flood-opacity="0.10"/>
     </filter>
   </defs>
 
-  <rect width="1280" height="820" fill="url(#bg)"/>
-  <circle cx="190" cy="130" r="120" fill="#FDE68A" fill-opacity="0.55"/>
-  <circle cx="1120" cy="680" r="130" fill="#BAE6FD" fill-opacity="0.35"/>
+  <rect width="1280" height="820" fill="url(#page)"/>
+  <circle cx="184" cy="154" r="110" fill="#FDE68A" fill-opacity="0.42"/>
+  <circle cx="1110" cy="690" r="126" fill="#BAE6FD" fill-opacity="0.28"/>
 
-  <g filter="url(#shadow)">
-    <rect x="120" y="110" width="1040" height="600" rx="30" fill="#FFFFFF" fill-opacity="0.92"/>
+  <g filter="url(#cardShadow)">
+    <rect x="120" y="100" width="1040" height="620" rx="34" fill="#FFFCF7"/>
   </g>
 
-  <rect x="160" y="150" width="960" height="120" rx="26" fill="#FFFBEB" stroke="#FDE68A"/>
-  <text x="190" y="188" fill="#B45309" font-family="Georgia, serif" font-size="16" font-weight="700" letter-spacing="4">FINAL STAGE</text>
-  <text x="190" y="230" fill="#0F172A" font-family="Georgia, serif" font-size="34" font-weight="700">Knowledge Copilot now feels like a real product.</text>
-  <text x="190" y="262" fill="#475569" font-family="Arial, sans-serif" font-size="16">Streaming answers, grounded sources, feedback capture, and live stats.</text>
+  <rect x="150" y="126" width="980" height="38" rx="19" fill="#FFFFFF" stroke="#E7E5E4"/>
+  <circle cx="180" cy="145" r="5" fill="#FCA5A5"/>
+  <circle cx="198" cy="145" r="5" fill="#FCD34D"/>
+  <circle cx="216" cy="145" r="5" fill="#86EFAC"/>
+  <text x="244" y="151" fill="#64748B" font-family="Arial, sans-serif" font-size="13">localhost:3000</text>
 
-  <rect x="855" y="168" width="90" height="70" rx="18" fill="#FEF3C7"/>
-  <text x="877" y="190" fill="#B45309" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2">DOCS</text>
-  <text x="886" y="223" fill="#0F172A" font-family="Arial, sans-serif" font-size="24" font-weight="700">12</text>
+  <rect x="160" y="182" width="960" height="118" rx="28" fill="url(#hero)" stroke="#F3E8C1"/>
+  <text x="190" y="216" fill="#B45309" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="3.5">FINAL STAGE</text>
+  <text x="190" y="254" fill="#0F172A" font-family="Georgia, serif" font-size="38" font-weight="700">Knowledge Copilot feels production-ready.</text>
+  <text x="190" y="281" fill="#475569" font-family="Arial, sans-serif" font-size="16">Streaming answers, grounded sources, feedback capture, and live stats in one demo flow.</text>
 
-  <rect x="960" y="168" width="110" height="70" rx="18" fill="#DCFCE7"/>
-  <text x="980" y="190" fill="#15803D" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2">INDEXED</text>
-  <text x="1000" y="223" fill="#0F172A" font-family="Arial, sans-serif" font-size="24" font-weight="700">9</text>
+  <rect x="884" y="205" width="88" height="58" rx="18" fill="#FEF3C7"/>
+  <text x="907" y="224" fill="#B45309" font-family="Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="2">DOCS</text>
+  <text x="915" y="250" fill="#0F172A" font-family="Arial, sans-serif" font-size="24" font-weight="700">12</text>
 
-  <rect x="160" y="300" width="290" height="360" rx="22" fill="#FFFFFF" stroke="#E2E8F0"/>
-  <text x="190" y="335" fill="#64748B" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="3">WORKSPACE</text>
-  <text x="190" y="380" fill="#0F172A" font-family="Arial, sans-serif" font-size="16" font-weight="700">Upload PDF</text>
-  <rect x="190" y="397" width="160" height="36" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="212" y="420" fill="#94A3B8" font-family="Arial, sans-serif" font-size="13">Choose file...</text>
-  <rect x="360" y="397" width="60" height="36" rx="14" fill="#F59E0B"/>
-  <text x="375" y="420" fill="#111827" font-family="Arial, sans-serif" font-size="13" font-weight="700">Upload</text>
+  <rect x="986" y="205" width="102" height="58" rx="18" fill="#DCFCE7"/>
+  <text x="1009" y="224" fill="#15803D" font-family="Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="2">INDEXED</text>
+  <text x="1027" y="250" fill="#0F172A" font-family="Arial, sans-serif" font-size="24" font-weight="700">9</text>
 
-  <text x="190" y="475" fill="#0F172A" font-family="Arial, sans-serif" font-size="16" font-weight="700">Prompt ideas</text>
-  <rect x="190" y="492" width="210" height="32" rx="16" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="205" y="512" fill="#334155" font-family="Arial, sans-serif" font-size="12">Summarize the main argument</text>
-  <rect x="190" y="534" width="190" height="32" rx="16" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="205" y="554" fill="#334155" font-family="Arial, sans-serif" font-size="12">What risks are mentioned?</text>
-  <rect x="190" y="576" width="220" height="32" rx="16" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="205" y="596" fill="#334155" font-family="Arial, sans-serif" font-size="12">List key dates and names</text>
+  <rect x="160" y="330" width="300" height="344" rx="26" fill="#FFFFFF" stroke="#E2E8F0"/>
+  <text x="190" y="365" fill="#64748B" font-family="Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="3">WORKSPACE</text>
+  <text x="190" y="406" fill="#0F172A" font-family="Arial, sans-serif" font-size="18" font-weight="700">Upload PDF</text>
+  <rect x="190" y="425" width="168" height="40" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="210" y="450" fill="#94A3B8" font-family="Arial, sans-serif" font-size="13">Quarterly Report.pdf</text>
+  <rect x="368" y="425" width="62" height="40" rx="14" fill="#F59E0B"/>
+  <text x="384" y="450" fill="#111827" font-family="Arial, sans-serif" font-size="13" font-weight="700">Upload</text>
 
-  <rect x="480" y="300" width="640" height="360" rx="22" fill="#FFFFFF" stroke="#E2E8F0"/>
-  <text x="515" y="335" fill="#64748B" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="3">CHAT</text>
-  <rect x="950" y="318" width="120" height="28" rx="14" fill="#FEF3C7"/>
-  <text x="973" y="336" fill="#B45309" font-family="Arial, sans-serif" font-size="11" font-weight="700">STREAMING LIVE</text>
+  <text x="190" y="512" fill="#0F172A" font-family="Arial, sans-serif" font-size="18" font-weight="700">Prompt ideas</text>
+  <rect x="190" y="529" width="214" height="34" rx="17" fill="#FFFBEB" stroke="#FDE68A"/>
+  <text x="206" y="551" fill="#334155" font-family="Arial, sans-serif" font-size="12">Summarize the main argument</text>
+  <rect x="190" y="572" width="206" height="34" rx="17" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="206" y="594" fill="#334155" font-family="Arial, sans-serif" font-size="12">What risks or limitations appear?</text>
+  <rect x="190" y="615" width="222" height="34" rx="17" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="206" y="637" fill="#334155" font-family="Arial, sans-serif" font-size="12">List the key dates, names, and facts</text>
 
-  <rect x="520" y="370" width="220" height="58" rx="22" fill="#0F172A"/>
-  <text x="540" y="394" fill="#CBD5E1" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2">YOU</text>
-  <text x="540" y="415" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="14">What does the document say about</text>
-  <text x="540" y="434" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="14">the main business risks?</text>
+  <rect x="484" y="330" width="636" height="344" rx="26" fill="#FFFFFF" stroke="#E2E8F0"/>
+  <text x="516" y="365" fill="#64748B" font-family="Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="3">CHAT</text>
+  <rect x="982" y="348" width="104" height="28" rx="14" fill="#FEF3C7"/>
+  <text x="1002" y="366" fill="#B45309" font-family="Arial, sans-serif" font-size="10" font-weight="700">STREAMING LIVE</text>
 
-  <rect x="520" y="446" width="540" height="154" rx="22" fill="#FFFFFF" stroke="#E2E8F0"/>
-  <text x="540" y="470" fill="#94A3B8" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2">ASSISTANT</text>
-  <text x="540" y="495" fill="#0F172A" font-family="Arial, sans-serif" font-size="14">The document highlights three primary risks: revenue concentration,</text>
-  <text x="540" y="516" fill="#0F172A" font-family="Arial, sans-serif" font-size="14">supplier dependency, and rising compliance costs. It notes that a</text>
-  <text x="540" y="537" fill="#0F172A" font-family="Arial, sans-serif" font-size="14">small number of enterprise accounts drives a disproportionate share</text>
-  <text x="540" y="558" fill="#0F172A" font-family="Arial, sans-serif" font-size="14">of revenue and that losing any one of them could affect growth</text>
-  <text x="540" y="579" fill="#0F172A" font-family="Arial, sans-serif" font-size="14">targets (Quarterly Report.pdf p.7).</text>
+  <rect x="516" y="392" width="292" height="70" rx="24" fill="#0F172A"/>
+  <text x="538" y="417" fill="#CBD5E1" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2">YOU</text>
+  <text x="538" y="440" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="15">What does the document say about the</text>
+  <text x="538" y="461" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="15">main business risks and dependencies?</text>
 
-  <rect x="540" y="612" width="160" height="8" rx="4" fill="#E2E8F0"/>
-  <rect x="540" y="612" width="116" height="8" rx="4" fill="#38BDF8"/>
+  <rect x="516" y="480" width="560" height="142" rx="24" fill="#FFFFFF" stroke="#E2E8F0"/>
+  <text x="538" y="505" fill="#94A3B8" font-family="Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2">ASSISTANT</text>
+  <text x="538" y="530" fill="#0F172A" font-family="Arial, sans-serif" font-size="15">The document highlights three primary risks: revenue concentration,</text>
+  <text x="538" y="552" fill="#0F172A" font-family="Arial, sans-serif" font-size="15">supplier dependency, and rising compliance costs. It explains that a</text>
+  <text x="538" y="574" fill="#0F172A" font-family="Arial, sans-serif" font-size="15">small number of enterprise accounts contributes a disproportionate</text>
+  <text x="538" y="596" fill="#0F172A" font-family="Arial, sans-serif" font-size="15">share of revenue, so losing one could materially affect growth</text>
+  <text x="538" y="618" fill="#0F172A" font-family="Arial, sans-serif" font-size="15">targets and near-term operating plans (Quarterly Report.pdf p.7).</text>
 
-  <rect x="760" y="612" width="98" height="28" rx="14" fill="#ECFDF5" stroke="#10B981"/>
-  <text x="787" y="630" fill="#047857" font-family="Arial, sans-serif" font-size="11" font-weight="700">HELPFUL</text>
-  <rect x="868" y="612" width="120" height="28" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="894" y="630" fill="#475569" font-family="Arial, sans-serif" font-size="11" font-weight="700">NOT HELPFUL</text>
+  <rect x="538" y="642" width="520" height="14" rx="7" fill="#F8FAFC"/>
+  <text x="556" y="652" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Latency: 842 ms</text>
+  <text x="673" y="652" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Chat ID: a1b2c3d4...</text>
+  <text x="813" y="652" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Receiving tokens...</text>
 
-  <rect x="520" y="620" width="500" height="0" fill="#FFFFFF"/>
-  <rect x="520" y="620" width="540" height="0" fill="#FFFFFF"/>
+  <rect x="538" y="631" width="148" height="7" rx="3.5" fill="#E2E8F0"/>
+  <rect x="538" y="631" width="104" height="7" rx="3.5" fill="#38BDF8"/>
 
-  <rect x="520" y="622" width="540" height="20" rx="10" fill="#F8FAFC"/>
-  <text x="538" y="636" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Latency: 842 ms</text>
-  <text x="653" y="636" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Chat ID: a1b2c3d4...</text>
-  <text x="790" y="636" fill="#64748B" font-family="Arial, sans-serif" font-size="10">Receiving tokens...</text>
+  <rect x="896" y="632" width="78" height="30" rx="15" fill="#ECFDF5" stroke="#10B981"/>
+  <text x="917" y="651" fill="#047857" font-family="Arial, sans-serif" font-size="11" font-weight="700">HELPFUL</text>
+  <rect x="984" y="632" width="96" height="30" rx="15" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="1000" y="651" fill="#475569" font-family="Arial, sans-serif" font-size="11" font-weight="700">NOT HELPFUL</text>
 </svg>
