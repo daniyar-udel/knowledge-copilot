@@ -15,5 +15,17 @@ node_modules/
 out/
 dist/
 
+# API runtime data
+apps/api/data/uploads/*
+!apps/api/data/uploads/.gitkeep
+apps/api/data/chunks/*
+!apps/api/data/chunks/.gitkeep
+apps/api/data/chroma/*
+!apps/api/data/chroma/.gitkeep
+apps/api/data/chat_logs.jsonl
+apps/api/data/feedback.jsonl
+
 # OS / Editor
 .DS_Store
+.idea/
+.vscode/

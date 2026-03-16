@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from datetime import datetime
@@ -38,8 +39,19 @@ for path in [DATA_DIR, UPLOAD_DIR, CHUNKS_DIR, CHROMA_DIR]:
 # ---------- App ----------
 app = FastAPI(title="Knowledge Copilot API")
 
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.2")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+API_CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "API_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
+
 llm = ChatOllama(
-    model="llama3.2",
+    model=OLLAMA_CHAT_MODEL,
     temperature=0,
     num_predict=256,
     keep_alive="10m",
@@ -47,7 +59,7 @@ llm = ChatOllama(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=API_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -162,7 +174,7 @@ def _load_all_indexed_docs(meta: dict[str, Any], doc_id: Optional[str]) -> list[
 
 
 def _get_embeddings() -> OllamaEmbeddings:
-    return OllamaEmbeddings(model="nomic-embed-text")
+    return OllamaEmbeddings(model=OLLAMA_EMBED_MODEL)
 
 
 def _get_vectorstore() -> Chroma:
