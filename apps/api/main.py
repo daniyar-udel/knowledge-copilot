@@ -100,7 +100,7 @@ def _now_iso() -> str:
 def _load_meta() -> dict[str, Any]:
     if not META_FILE.exists():
         return {"documents": {}}
-    return json.loads(META_FILE.read_text(encoding="utf-8"))
+    return json.loads(META_FILE.read_text(encoding="utf-8-sig"))
 
 
 def _save_meta(meta: dict[str, Any]) -> None:
