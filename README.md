@@ -51,7 +51,28 @@ apps/
 README.md
 ```
 
-## Local Setup
+## Quick Start with Docker
+
+The easiest way to run the project. Requires [Docker](https://docs.docker.com/get-docker/) with the Compose plugin.
+
+```bash
+docker compose up --build
+```
+
+On first run `ollama-init` automatically pulls `llama3.2` and `nomic-embed-text` (~2–4 GB). Once all services are healthy, open `http://localhost:3000`.
+
+> **GPU acceleration** — to use an NVIDIA GPU, add a `deploy` block to the `ollama` service in `docker-compose.yml`:
+> ```yaml
+>     deploy:
+>       resources:
+>         reservations:
+>           devices:
+>             - driver: nvidia
+>               count: all
+>               capabilities: [gpu]
+> ```
+
+## Local Setup (without Docker)
 
 ### 1. Start Ollama
 
@@ -90,8 +111,9 @@ Open `http://localhost:3000`.
 
 See `apps/api/.env.example`
 
-- `OLLAMA_CHAT_MODEL`: chat model name
-- `OLLAMA_EMBED_MODEL`: embedding model name
+- `OLLAMA_BASE_URL`: Ollama server URL (default: `http://localhost:11434`)
+- `OLLAMA_CHAT_MODEL`: chat model name (default: `llama3.2`)
+- `OLLAMA_EMBED_MODEL`: embedding model name (default: `nomic-embed-text`)
 - `API_CORS_ORIGINS`: comma-separated frontend origins
 
 ### Web
@@ -114,6 +136,14 @@ See `apps/web/.env.example`
   - average sources per chat
   - top queries
   - recent chats
+
+## Running Tests
+
+```bash
+cd apps/api
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
 
 ## Notes on Privacy
 

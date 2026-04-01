@@ -55,6 +55,7 @@ export default function Home() {
   const [selectedDocId, setSelectedDocId] = useState<string>("ALL");
   const [uploading, setUploading] = useState(false);
   const [indexing, setIndexing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
@@ -185,6 +186,25 @@ export default function Home() {
     }
   }
 
+  async function handleDelete() {
+    setError(null);
+    if (selectedDocId === "ALL") return;
+
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE}/documents/${selectedDocId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setSelectedDocId("ALL");
+      await fetchDocs();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function stopStreaming() {
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
@@ -309,14 +329,14 @@ export default function Home() {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-700">
-                Final Stage
+                RAG · PDF · Local AI
               </p>
               <h1 className="mt-2 font-serif text-4xl leading-tight text-slate-950 md:text-5xl">
-                Knowledge Copilot now feels like a real product, not a prototype.
+                Ask grounded questions over your documents.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                Streaming answers, grounded sources, feedback capture, and a live stats
-                dashboard make this portfolio project feel production-minded.
+                Upload a PDF, index it, and get streaming answers with source citations —
+                powered by a local language model running entirely on your machine.
               </p>
             </div>
 
@@ -401,6 +421,13 @@ export default function Home() {
                       className="flex-1 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {indexing ? "Indexing..." : "Index selected"}
+                    </button>
+                    <button
+                      onClick={() => void handleDelete()}
+                      disabled={deleting || selectedDocId === "ALL"}
+                      className="rounded-2xl border border-rose-200 px-4 py-2.5 text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {deleting ? "Deleting..." : "Delete"}
                     </button>
                   </div>
                 </div>

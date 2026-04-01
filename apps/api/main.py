@@ -4,7 +4,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -39,6 +39,7 @@ for path in [DATA_DIR, UPLOAD_DIR, CHUNKS_DIR, CHROMA_DIR]:
 # ---------- App ----------
 app = FastAPI(title="Knowledge Copilot API")
 
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.2")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 API_CORS_ORIGINS = [
@@ -52,6 +53,7 @@ API_CORS_ORIGINS = [
 
 llm = ChatOllama(
     model=OLLAMA_CHAT_MODEL,
+    base_url=OLLAMA_BASE_URL,
     temperature=0,
     num_predict=256,
     keep_alive="10m",
@@ -94,7 +96,7 @@ class ChatResult(BaseModel):
 
 # ---------- Meta helpers ----------
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _load_meta() -> dict[str, Any]:
@@ -174,7 +176,7 @@ def _load_all_indexed_docs(meta: dict[str, Any], doc_id: Optional[str]) -> list[
 
 
 def _get_embeddings() -> OllamaEmbeddings:
-    return OllamaEmbeddings(model=OLLAMA_EMBED_MODEL)
+    return OllamaEmbeddings(model=OLLAMA_EMBED_MODEL, base_url=OLLAMA_BASE_URL)
 
 
 def _get_vectorstore() -> Chroma:
@@ -469,6 +471,34 @@ def index_document(doc_id: str):
     _save_meta(meta)
 
     return {"doc_id": doc_id, "pages": len(pages), "chunks": len(chunks)}
+
+
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str):
+    meta = _load_meta()
+    doc_meta = meta["documents"].get(doc_id)
+    if not doc_meta:
+        return JSONResponse({"error": "doc_id not found"}, status_code=404)
+
+    pdf_path = UPLOAD_DIR / doc_meta["stored_as"]
+    if pdf_path.exists():
+        pdf_path.unlink()
+
+    chunks_path = _chunks_path(doc_id)
+    if chunks_path.exists():
+        chunks_path.unlink()
+
+    vector_ids = doc_meta.get("vector_ids") or []
+    if vector_ids:
+        try:
+            _get_vectorstore().delete(ids=vector_ids)
+        except Exception as exc:
+            print(f"[vector delete warning] {exc}")
+
+    del meta["documents"][doc_id]
+    _save_meta(meta)
+
+    return {"ok": True}
 
 
 @app.get("/stats")

@@ -89,11 +89,11 @@ export default function StatsPage() {
                 Live Stats
               </p>
               <h1 className="mt-2 font-serif text-4xl text-slate-950">
-                Signals recruiters can actually inspect.
+                Usage, performance, and feedback at a glance.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                This dashboard auto-refreshes every 10 seconds and tracks usage,
-                performance, and feedback from the chat experience.
+                Auto-refreshes every 10 seconds. Tracks latency, retrieval quality,
+                and explicit user feedback across all chat sessions.
               </p>
             </div>
 
